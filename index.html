@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GO PORTUGUESE! — Conexão online</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    input, button { font: inherit; padding: .6rem; margin: .25rem 0; }
+    input { max-width: 100%; }
+    button { cursor: pointer; }
+    section { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+    #status { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>GO PORTUGUESE! — Conexão online</h1>
+  <p>Esta página é um exemplo mínimo para testar a API. Para integrar ao jogo existente, copie as funções de <code>frontend-api.js</code> (ou adapte o bloco abaixo) para o seu jogo.</p>
+
+  <section>
+    <h2>Professor: criar sala</h2>
+    <label>PIN do professor <input id="teacherPin" type="password" autocomplete="current-password" placeholder="PIN configurado no Render"></label><br>
+    <button id="createBtn">Criar sala</button>
+  </section>
+
+  <section>
+    <h2>Aluno: entrar na sala</h2>
+    <label>Código de 5 dígitos <input id="roomCode" inputmode="numeric" maxlength="5" placeholder="12345"></label><br>
+    <label>Nome <input id="playerName" maxlength="40" placeholder="Seu nome"></label><br>
+    <label>Avatar (JSON opcional) <input id="avatar" value="{}"></label><br>
+    <button id="joinBtn">Entrar</button>
+  </section>
+
+  <section>
+    <h2>Controles da sala</h2>
+    <label>PIN do professor <input id="startPin" type="password" placeholder="PIN do professor"></label><br>
+    <button id="startBtn">Iniciar partida</button>
+    <button id="refreshBtn">Atualizar status</button>
+  </section>
+
+  <section>
+    <h2>Status</h2>
+    <pre id="status">Configure a URL da API no script antes de usar.</pre>
+  </section>
+
+  <script>
+    // IMPORTANTE: substitua pela URL pública do seu serviço no Render.
+    const SERVER_URL = "https://go-portuguese-backend.onrender.com";
+    let activeRoomCode = "";
+    let joinedRoomCode = "";
+    let pollTimer = null;
+
+    const statusEl = document.querySelector("#status");
+    function show(value) { statusEl.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2); }
+
+    async function api(path, options = {}) {
+      const response = await fetch(`${SERVER_URL}${path}`, {
+        ...options,
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `Erro HTTP ${response.status}`);
+      return data;
+    }
+
+    async function createOnlineRoom() {
+      const data = await api("/api/rooms/create", {
+        method: "POST",
+        body: JSON.stringify({ pin: document.querySelector("#teacherPin").value })
+      });
+      activeRoomCode = data.room_code;
+      document.querySelector("#roomCode").value = activeRoomCode;
+      show(`Sala criada! Código: ${activeRoomCode}`);
+      startPolling();
+    }
+
+    async function joinOnlineRoom(code) {
+      let avatar;
+      try { avatar = JSON.parse(document.querySelector("#avatar").value || "{}"); }
+      catch { throw new Error("O avatar precisa estar em formato JSON válido."); }
+      const data = await api("/api/rooms/join", {
+        method: "POST",
+        body: JSON.stringify({
+          room_code: code,
+          player_name: document.querySelector("#playerName").value.trim(),
+          avatar
+        })
+      });
+      joinedRoomCode = code;
+      show({ message: "Entrou no saguão. Aguarde o professor iniciar.", ...data });
+      startPolling();
+    }
+
+    async function startOnlineRoom() {
+      const code = activeRoomCode || document.querySelector("#roomCode").value.trim();
+      const data = await api("/api/rooms/start", {
+        method: "POST",
+        body: JSON.stringify({ room_code: code, pin: document.querySelector("#startPin").value })
+      });
+      show(data);
+      await pollRoomStatus();
+    }
+
+    async function pollRoomStatus() {
+      const code = activeRoomCode || joinedRoomCode || document.querySelector("#roomCode").value.trim();
+      if (!code) return;
+      try { show(await api(`/api/rooms/${encodeURIComponent(code)}/status`)); }
+      catch (error) { show(`Não foi possível atualizar: ${error.message}`); }
+    }
+
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(pollRoomStatus, 2000);
+      pollRoomStatus();
+    }
+
+    document.querySelector("#createBtn").addEventListener("click", async () => {
+      try { await createOnlineRoom(); } catch (e) { show(`Erro ao criar sala: ${e.message}`); }
+    });
+    document.querySelector("#joinBtn").addEventListener("click", async () => {
+      try { await joinOnlineRoom(document.querySelector("#roomCode").value.trim()); }
+      catch (e) { show(`Erro ao entrar: ${e.message}`); }
+    });
+    document.querySelector("#startBtn").addEventListener("click", async () => {
+      try { await startOnlineRoom(); } catch (e) { show(`Erro ao iniciar: ${e.message}`); }
+    });
+    document.querySelector("#refreshBtn").addEventListener("click", pollRoomStatus);
+  </script>
+</body>
+</html>
